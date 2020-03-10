@@ -3,6 +3,14 @@
   "description": "Webpack Assets Manifest options",
   "type": "object",
   "properties": {
+    "isWatchMode": {
+      "type": "boolean",
+      "default": false
+    },
+    "skipOnIncrementialRebuilds": {
+      "type": "boolean",
+      "default": false
+    },
     "assets": {
       "type": "object",
       "default": {}

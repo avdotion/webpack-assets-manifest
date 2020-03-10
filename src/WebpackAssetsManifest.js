@@ -99,6 +99,9 @@ class WebpackAssetsManifest
 
     // Is a merge happening?
     this[ IS_MERGING ] = false;
+
+    // Semaphore to count recompilations in watch-mode
+    this.compilationsCount = 0;
   }
 
   /**
@@ -139,6 +142,9 @@ class WebpackAssetsManifest
     // The compilation has finished
     compiler.hooks.done.tap(PLUGIN_NAME, stats => this.hooks.done.call(this, stats));
 
+    // Webpack Watch has launched again
+    compiler.hooks.invalid.tap(PLUGIN_NAME, () => { this.compilationsCount++; });
+
     // Setup is complete.
     this.hooks.apply.call(this);
   }
@@ -151,6 +157,8 @@ class WebpackAssetsManifest
   get defaultOptions()
   {
     return {
+      isWatchMode: false,
+      skipOnIncrementialRebuilds: false,
       assets: Object.create(null),
       output: 'manifest.json',
       replacer: null, // Its easier to use the transform hook instead.
@@ -435,6 +443,19 @@ class WebpackAssetsManifest
   }
 
   /**
+   * Check for rebuild
+   *
+   * @param  {object} compilation - the Webpack compilation object
+   * @param  {Function} callback
+   */
+  shouldInterupt()
+  {
+    return this.options.isWatchMode &&
+      this.options.skipOnIncrementialRebuilds &&
+      this.compilationsCount >= 1;
+  }
+
+  /**
    * Handle the `emit` event
    *
    * @param  {object} compilation - the Webpack compilation object
@@ -442,6 +463,12 @@ class WebpackAssetsManifest
    */
   handleEmit(compilation, callback)
   {
+    if (this.shouldInterupt()) {
+      callback();
+
+      return;
+    }
+
     this.stats = compilation.getStats().toJson({
       all: false,
       assets: true,
@@ -511,6 +538,10 @@ class WebpackAssetsManifest
    */
   handleAfterEmit(compilation)
   {
+    if (this.shouldInterupt()) {
+      return Promise.resolve();
+    }
+
     // Reset the internal mapping of hashed name to original name after every compilation.
     this.assetNames.clear();
 
@@ -544,6 +575,10 @@ class WebpackAssetsManifest
    */
   handleNormalModuleLoader(loaderContext, module)
   {
+    if (this.shouldInterupt()) {
+      return;
+    }
+
     const { emitFile } = loaderContext;
 
     loaderContext.emitFile = (name, content, sourceMap) => {
@@ -567,7 +602,9 @@ class WebpackAssetsManifest
    */
   handleCompilation(compilation)
   {
-    compilation.hooks.normalModuleLoader.tap(PLUGIN_NAME, this.handleNormalModuleLoader.bind(this));
+    if (!this.shouldInterupt()) {
+      compilation.hooks.normalModuleLoader.tap(PLUGIN_NAME, this.handleNormalModuleLoader.bind(this));
+    }
   }
 
   /**
